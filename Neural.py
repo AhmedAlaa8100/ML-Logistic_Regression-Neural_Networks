@@ -35,13 +35,12 @@ def load_data(file_path, batch_size=64):
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, input_size, hidden_size=[5, 3], layers=2, output_size=2):
+    def __init__(self, input_size, hidden_size=[128, 64], layers=2, output_size=10):
         super(NeuralNetwork, self).__init__()
         self.layers = layers
         self.relu = nn.ReLU()
         self.best_val_loss = float('inf')
         self.best_model_state = None
-
 
         # Create hidden layers dynamically
         for i in range(self.layers):
@@ -60,104 +59,98 @@ class NeuralNetwork(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        # Hidden layers with ReLU
         for i in range(self.layers):
             fc_layer = getattr(self, f'fc{i+1}')
             x = self.relu(fc_layer(x))
-        # Output layer (no activation)
         output_layer = getattr(self, f'fc{self.layers + 1}')
-        x = output_layer(x)
-        return x
-    
-    # Custom training loop
-    # • Optimizer: Stochastic Gradient Descent (SGD)
-    # • Learning rate: 0.01 (baseline)
-    # • Loss function: Cross-entropy
-    # • Batch size: 64 (baseline)
+        return output_layer(x)
+
+    # ---------------- TRAINING -----------------
     def train_model(self, train_loader, val_loader, loss_function, optimizer, epochs=10, patience=3):
         train_losses, val_losses = [], []
+        train_std, val_std = [], []
         train_accuracies, val_accuracies = [], []
         self.early_stopping_counter = 0
         previous_loss = None
 
         for epoch in range(epochs):
+            # ---- TRAIN ----
             self.train()
-            total_loss = 0
-            correct_train = 0
-            total_train = 0
+            batch_losses = []
+            correct_train, total_train = 0, 0
 
-            for inputs, labels in tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}'):
+            for inputs, labels in tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs} [Training]'):
                 inputs, labels = inputs.to(device), labels.to(device)
                 optimizer.zero_grad()
-                # Forward pass
                 outputs = self(inputs)
                 loss = loss_function(outputs, labels)
-                # Backward pass and optimization
                 loss.backward()
                 optimizer.step()
 
-                total_loss += loss.item()
+                batch_losses.append(loss.item())
                 _, predicted = torch.max(outputs.data, 1)
                 total_train += labels.size(0)
                 correct_train += (predicted == labels).sum().item()
 
-            avg_train_loss = total_loss / len(train_loader)
-            train_accuracy = correct_train / total_train
+            avg_train_loss = torch.tensor(batch_losses).mean().item()
+            std_train_loss = torch.tensor(batch_losses).std().item()
             train_losses.append(avg_train_loss)
-            train_accuracies.append(train_accuracy)
+            train_std.append(std_train_loss)
+            train_accuracies.append(correct_train / total_train)
 
-            # Validation phase
+            # ---- VALIDATION ----
             self.eval()
-            val_loss = 0
-            correct_val = 0
-            total_val = 0
+            val_batch_losses = []
+            correct_val, total_val = 0, 0
             with torch.no_grad():
-                for inputs, labels in tqdm(val_loader, desc=f'Validating {epoch+1}/{epochs}'):
+                for inputs, labels in tqdm(val_loader, desc=f'Epoch {epoch+1}/{epochs} [Validation]'):
                     inputs, labels = inputs.to(device), labels.to(device)
                     outputs = self(inputs)
                     loss = loss_function(outputs, labels)
-                    val_loss += loss.item()
+                    val_batch_losses.append(loss.item())
+
                     _, predicted = torch.max(outputs.data, 1)
                     total_val += labels.size(0)
                     correct_val += (predicted == labels).sum().item()
 
-            avg_val_loss = val_loss / len(val_loader)
-            val_accuracy = correct_val / total_val
+            avg_val_loss = torch.tensor(val_batch_losses).mean().item()
+            std_val_loss = torch.tensor(val_batch_losses).std().item()
             val_losses.append(avg_val_loss)
-            val_accuracies.append(val_accuracy)
+            val_std.append(std_val_loss)
+            val_accuracies.append(correct_val / total_val)
 
-            # Convergence delta
+            # ---- CONVERGENCE ----
             if previous_loss is not None:
                 delta = abs(avg_train_loss - previous_loss)
-                print(f"Convergence TrainLoss: {delta:.6f}")
+                print(f"Δ Convergence: {delta:.6f}")
             previous_loss = avg_train_loss
 
-            # Track progress
-            print(f'Epoch [{epoch+1}/{epochs}] | '
-                f'Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f} | '
-                f'Train Acc: {train_accuracy:.4f}, Val Acc: {val_accuracy:.4f}')
+            # ---- LOGGING ----
+            print(f"Epoch [{epoch+1}/{epochs}] | "
+                  f"Train Loss: {avg_train_loss:.4f} ± {std_train_loss:.4f} | "
+                  f"Val Loss: {avg_val_loss:.4f} ± {std_val_loss:.4f} | "
+                  f"Train Acc: {train_accuracies[-1]:.4f}, Val Acc: {val_accuracies[-1]:.4f}")
 
-            # Save best model
+            # ---- EARLY STOPPING ----
             if avg_val_loss < self.best_val_loss:
                 self.best_val_loss = avg_val_loss
                 self.best_model_state = self.state_dict()
                 torch.save(self.best_model_state, 'best_model.pth')
-                print("New best model saved.")
                 self.early_stopping_counter = 0
+                print("New best model saved.")
             else:
                 self.early_stopping_counter += 1
                 if self.early_stopping_counter >= patience:
                     print("No improvement, stopping early.")
                     break
 
-        return self.best_model_state, train_losses, val_losses, train_accuracies, val_accuracies
+        return self.best_model_state, train_losses, val_losses, train_std, val_std, train_accuracies, val_accuracies
 
-
+    # ---------------- EVALUATION -----------------
     def evaluate_model(self, test_loader, loss_function):
         self.eval()
         test_loss = 0
-        correct = 0
-        total = 0
+        correct, total = 0, 0
         with torch.no_grad():
             for inputs, labels in test_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
@@ -170,48 +163,56 @@ class NeuralNetwork(nn.Module):
         avg_test_loss = test_loss / len(test_loader)
         test_accuracy = correct / total
         print(f'\n Test Loss: {avg_test_loss:.4f}')
-        print(f' Test Accuracy: {test_accuracy:.4f}')
+        print(f'Test Accuracy: {test_accuracy:.4f}')
         return avg_test_loss, test_accuracy
 
-
+    # ---------------- VISUALIZATION -----------------
     @staticmethod
-    def plot_learning_curves(train_losses, val_losses, train_accuracies, val_accuracies):
+    def plot_results(train_losses, val_losses, train_std, val_std, train_accuracies, val_accuracies):
         epochs = range(1, len(train_losses) + 1)
+        loss_gap = [abs(t - v) for t, v in zip(train_losses, val_losses)]  # convergence metric
 
-        plt.figure(figsize=(12, 5))
+        plt.figure(figsize=(15, 4))
 
-        # Loss curve
-        plt.subplot(1, 2, 1)
-        plt.plot(epochs, train_losses, label='Train Loss')
-        plt.plot(epochs, val_losses, label='Validation Loss')
-        plt.xlabel('Epochs')
-        plt.ylabel('Loss')
-        plt.title('Learning Curve (Loss)')
-        plt.legend()
+        # (1) Loss curves with error bars
+        plt.subplot(1, 3, 1)
+        plt.errorbar(epochs, train_losses, yerr=train_std, label='Train Loss', capsize=3)
+        plt.errorbar(epochs, val_losses, yerr=val_std, label='Validation Loss', capsize=3)
+        plt.xlabel('Epochs'); plt.ylabel('Loss')
+        plt.title('Learning Curve (with Error Bars)')
+        plt.legend(); plt.grid(True)
 
-        # Accuracy curve
-        plt.subplot(1, 2, 2)
+        # (2) Accuracy curves
+        plt.subplot(1, 3, 2)
         plt.plot(epochs, train_accuracies, label='Train Accuracy')
         plt.plot(epochs, val_accuracies, label='Validation Accuracy')
-        plt.xlabel('Epochs')
-        plt.ylabel('Accuracy')
+        plt.xlabel('Epochs'); plt.ylabel('Accuracy')
         plt.title('Learning Curve (Accuracy)')
-        plt.legend()
+        plt.legend(); plt.grid(True)
+
+        # (3) Convergence analysis
+        plt.subplot(1, 3, 3)
+        plt.plot(epochs, loss_gap, color='purple', label='|Train - Val Loss|')
+        plt.xlabel('Epochs'); plt.ylabel('Loss Gap')
+        plt.title('Convergence Analysis')
+        plt.legend(); plt.grid(True)
 
         plt.tight_layout()
         plt.show()
 
-
 # Example usage:
 if __name__ == "__main__":
-    train_loader, val_loader, test_loader = load_data("mnist_All.csv", batch_size=64)
-    model = NeuralNetwork(input_size=784, hidden_size=[128, 64], layers=2, output_size=10)
-    loss_function = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
-    best_model_state, train_losses, val_losses, train_accuracies, val_accuracies = model.train_model(
-        train_loader, val_loader, loss_function, optimizer, epochs=50, patience=5)
+    train_loader, val_loader, test_loader = load_data('mnist_All.csv', batch_size=64)
+
+    model = NeuralNetwork(input_size=784, hidden_size=[128, 64], layers=2, output_size=10).to(device)
+    loss_function = nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
+
+    best_model_state, train_losses, val_losses, train_std, val_std, train_accuracies, val_accuracies = model.train_model(
+        train_loader, val_loader, loss_function, optimizer, epochs=20, patience=5)
+
     model.load_state_dict(best_model_state)
-    test_loss, test_accuracy = model.evaluate_model(test_loader, loss_function)
-    model.plot_learning_curves(train_losses, val_losses, train_accuracies, val_accuracies)
+    model.evaluate_model(test_loader, loss_function)
+    model.plot_results(train_losses, val_losses, train_std, val_std, train_accuracies, val_accuracies)
+
