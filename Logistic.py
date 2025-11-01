@@ -73,13 +73,17 @@ class LogisticRegressionScratch:
         return correct / y_true.shape[0]
 
     # Training and validation
-    def train(self, train_loader, val_loader, epochs=10):
+    # Training and validation with early stopping
+    def train(self, train_loader, val_loader, epochs=100, patience=3):
         train_losses, val_losses = [], []
         train_accs, val_accs = [], []
 
+        best_val_loss = float('inf')
+        best_weights = (self.W.clone(), self.b.clone())
+        patience_counter = 0
+
         for epoch in range(epochs):
             # ----- TRAIN -----
-            self.W.requires_grad = False
             epoch_train_loss = 0
             correct, total = 0, 0
 
@@ -100,29 +104,47 @@ class LogisticRegressionScratch:
             train_losses.append(train_loss)
             train_accs.append(train_acc)
 
-            # ----- VALIDATE -----
-            val_loss, val_acc = self.validate(val_loader)
+            # ----- VALIDATION -----
+            epoch_val_loss = 0
+            correct, total = 0, 0
+            with torch.no_grad():
+                for X_batch, y_batch in val_loader:
+                    y_batch = y_batch.view(-1, 1).float()
+                    y_pred = self.sigmoid(torch.matmul(X_batch, self.W) + self.b)
+                    loss = self.loss(y_pred, y_batch)
+                    epoch_val_loss += loss.item()
+
+                    correct += ((y_pred >= 0.5).float() == y_batch).float().sum().item()
+                    total += y_batch.size(0)
+            val_loss = epoch_val_loss / len(val_loader)
+            val_acc = correct / total
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
-            print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}")
+            print(f"Epoch {epoch+1}/{epochs} | "
+                  f"Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f} | "
+                  f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}")
+
+         # ----- EARLY STOPPING -----
+            if val_loss + 1e-10 < best_val_loss:
+                print(f"  Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving model weights.")
+                best_val_loss = val_loss
+                best_weights = (self.W.clone(), self.b.clone())
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"\nEarly stopping at epoch {epoch+1} — validation loss stopped improving.")
+                    break
+
+        # Load best weights after loop
+        self.W, self.b = best_weights
+
 
         # Plot curves
         self.plot_curves(train_losses, val_losses, train_accs, val_accs)
         return train_losses, val_losses, train_accs, val_accs
 
-    # Validation
-    def validate(self, val_loader):
-        total_loss, correct, total = 0, 0, 0
-        with torch.no_grad():
-            for X_batch, y_batch in val_loader:
-                y_batch = y_batch.view(-1, 1).float()
-                y_pred = self.sigmoid(torch.matmul(X_batch, self.W) + self.b)
-                loss = self.loss(y_pred, y_batch)
-                total_loss += loss.item()
-                correct += ((y_pred >= 0.5).float() == y_batch).float().sum().item()
-                total += y_batch.size(0)
-        return total_loss / len(val_loader), correct / total
 
     # Plot loss and accuracy
     def plot_curves(self, train_losses, val_losses, train_accs, val_accs):
@@ -139,6 +161,7 @@ class LogisticRegressionScratch:
         plt.plot(train_accs, label='Train Acc')
         plt.plot(val_accs, label='Val Acc')
         plt.xlabel('Epochs')
+        plt.xlim(0, len(train_accs))
         plt.ylabel('Accuracy')
         plt.legend()
         plt.title('Training and Validation Accuracy')
