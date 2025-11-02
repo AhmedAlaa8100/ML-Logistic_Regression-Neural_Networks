@@ -43,12 +43,13 @@ class NeuralNetwork(nn.Module):
         self.best_model_state = None
 
         # Create hidden layers dynamically
+        # fc1, fc2, ..., fcN (input_size -> hidden_size[0], hidden_size[i-1] -> hidden_size[i])
+        # fc stands for fully connected layer
         for i in range(self.layers):
             if i == 0:
                 setattr(self, f'fc{i+1}', nn.Linear(input_size, hidden_size[i]))
             else:
                 setattr(self, f'fc{i+1}', nn.Linear(hidden_size[i-1], hidden_size[i]))
-
         # Output layer
         setattr(self, f'fc{self.layers + 1}', nn.Linear(hidden_size[-1], output_size))
 
@@ -58,47 +59,49 @@ class NeuralNetwork(nn.Module):
                 nn.init.kaiming_normal_(m.weight)
                 nn.init.constant_(m.bias, 0)
 
+
     def forward(self, x):
         for i in range(self.layers):
             fc_layer = getattr(self, f'fc{i+1}')
-            x = self.relu(fc_layer(x))
+            x = fc_layer(x)
+            x = self.relu(x)
         output_layer = getattr(self, f'fc{self.layers + 1}')
         return output_layer(x)
 
-    # ---------------- TRAINING -----------------
+
     def train_model(self, train_loader, val_loader, loss_function, optimizer, epochs=10, patience=3):
         train_losses, val_losses = [], []
         train_std, val_std = [], []
         train_accuracies, val_accuracies = [], []
         self.early_stopping_counter = 0
-        previous_loss = None
 
         for epoch in range(epochs):
-            # ---- TRAIN ----
             self.train()
-            batch_losses = []
+            epoch_losses = []
             correct_train, total_train = 0, 0
 
             for inputs, labels in tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs} [Training]'):
                 inputs, labels = inputs.to(device), labels.to(device)
+                # Zero the gradients as optimizer accumulates them
                 optimizer.zero_grad()
                 outputs = self(inputs)
                 loss = loss_function(outputs, labels)
+                # Backpropagation (compute gradients dL/dW)
                 loss.backward()
+                # Update weights (W = W - lr * dL/dW)
                 optimizer.step()
 
-                batch_losses.append(loss.item())
+                epoch_losses.append(loss.item())
                 _, predicted = torch.max(outputs.data, 1)
                 total_train += labels.size(0)
                 correct_train += (predicted == labels).sum().item()
 
-            avg_train_loss = torch.tensor(batch_losses).mean().item()
-            std_train_loss = torch.tensor(batch_losses).std().item()
+            avg_train_loss = torch.tensor(epoch_losses).mean().item()
+            std_train_loss = torch.tensor(epoch_losses).std().item()
             train_losses.append(avg_train_loss)
             train_std.append(std_train_loss)
             train_accuracies.append(correct_train / total_train)
 
-            # ---- VALIDATION ----
             self.eval()
             val_batch_losses = []
             correct_val, total_val = 0, 0
@@ -118,12 +121,6 @@ class NeuralNetwork(nn.Module):
             val_losses.append(avg_val_loss)
             val_std.append(std_val_loss)
             val_accuracies.append(correct_val / total_val)
-
-            # ---- CONVERGENCE ----
-            if previous_loss is not None:
-                delta = abs(avg_train_loss - previous_loss)
-                print(f"Δ Convergence: {delta:.6f}")
-            previous_loss = avg_train_loss
 
             # ---- LOGGING ----
             print(f"Epoch [{epoch+1}/{epochs}] | "
@@ -146,7 +143,6 @@ class NeuralNetwork(nn.Module):
 
         return self.best_model_state, train_losses, val_losses, train_std, val_std, train_accuracies, val_accuracies
 
-    # ---------------- EVALUATION -----------------
     def evaluate_model(self, test_loader, loss_function):
         self.eval()
         test_loss = 0
@@ -192,7 +188,7 @@ class NeuralNetwork(nn.Module):
 
         # (3) Convergence analysis
         plt.subplot(1, 3, 3)
-        plt.plot(epochs, loss_gap, color='purple', label='|Train - Val Loss|')
+        plt.plot(epochs, loss_gap, color='purple', label='|Train - Val Loss| (Convergence Analysis)')
         plt.xlabel('Epochs'); plt.ylabel('Loss Gap')
         plt.title('Convergence Analysis')
         plt.legend(); plt.grid(True)
