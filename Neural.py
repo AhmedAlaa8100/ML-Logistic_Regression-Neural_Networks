@@ -124,10 +124,10 @@ class NeuralNetwork(nn.Module):
             val_accuracies.append(correct_val / total_val)
 
             # ---- LOGGING ----
-            # print(f"Epoch [{epoch+1}/{epochs}] | "
-            #       f"Train Loss: {avg_train_loss:.4f} ± {std_train_loss:.4f} | "
-            #       f"Val Loss: {avg_val_loss:.4f} ± {std_val_loss:.4f} | "
-            #       f"Train Acc: {train_accuracies[-1]:.4f}, Val Acc: {val_accuracies[-1]:.4f}")
+            print(f"Epoch [{epoch+1}/{epochs}] | "
+                  f"Train Loss: {avg_train_loss:.4f} ± {std_train_loss:.4f} | "
+                  f"Val Loss: {avg_val_loss:.4f} ± {std_val_loss:.4f} | "
+                  f"Train Acc: {train_accuracies[-1]:.4f}, Val Acc: {val_accuracies[-1]:.4f}")
 
             # ---- EARLY STOPPING ----
             if avg_val_loss < self.best_val_loss:
@@ -500,62 +500,9 @@ def plot_architecture_surface(df):
 
 
 
-
-
-class basic_conventional_nn(nn.Module):
-    def __init__(self):
-        super(basic_conventional_nn, self).__init__()
-        
-        # Define layers here
-
-    def forward(self, x):
-        # Define forward pass here
-        return x
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Example usage:
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Using device: {device}')
-    
-    lr_results, best_lr, best_lr_acc = run_learning_rate_analysis()
-    plot_learning_rate_analysis(lr_results)
-
-    bs_results, best_bs, best_bs_acc = run_batch_size_analysis()
-    plot_batch_size_analysis(bs_results)
-
-    results_arch, df_arch, best_arch, best_acc = run_architecture_analysis()
-    plot_architecture_analysis(results_arch)
-    plot_architecture_surface(df_arch)
-
-    #best model
-    # train_loader, val_loader, test_loader = load_data('mnist_All.csv', batch_size=best_bs)
-
-    # best_hidden_size = [best_arch[1]] * best_arch[0]   # repeat neurons per layer
-    # model = NeuralNetwork(input_size=784, hidden_size=best_hidden_size,
-    #                       layers=best_arch[0], output_size=10).to(device)
-
-    # loss_function = nn.CrossEntropyLoss()
-    # optimizer = torch.optim.SGD(model.parameters(), lr=best_lr)
-
-    # # ---- Train final best model ----
-    # best_model_state, train_losses, val_losses, train_std, val_std, train_acc, val_acc = model.train_model(
-    #     train_loader, val_loader, loss_function, optimizer, epochs=100, patience=5)
-
-    # # ---- Evaluate on test set ----
-    # model.load_state_dict(best_model_state)
-    # model.evaluate_model(test_loader, loss_function)
+    train_loader, val_loader, test_loader = load_data('mnist_All.csv', batch_size=64)
+    model = NeuralNetwork(input_size=784, hidden_size=[128, 64], layers=2, output_size=10).to(device)
+    loss_function = nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
