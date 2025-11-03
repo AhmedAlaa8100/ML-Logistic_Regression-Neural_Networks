@@ -1,3 +1,4 @@
+from unittest import loader
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
@@ -35,6 +36,7 @@ class SoftmaxRegression:
             self.b.grad.zero_()
 
     def train_model(self, train_loader, val_loader, epochs=50):
+        all_preds, all_labels = [], []
         train_losses, val_losses, train_accs, val_accs = [], [], [], []
         for _ in range(epochs):
             total_loss, correct, total = 0, 0, 0
@@ -49,22 +51,48 @@ class SoftmaxRegression:
 
             train_loss = total_loss / len(train_loader)
             train_acc = correct / total
-            val_loss, val_acc = self.evaluate(val_loader)
+            
             train_losses.append(train_loss)
-            val_losses.append(val_loss)
+            total_loss, correct, total = 0, 0, 0
+            with torch.no_grad():
+                for X_batch, y_batch in loader:
+                    y_pred = self.forward(X_batch)
+                
+                    loss = self.compute_loss(y_pred, y_batch)
+                    total_loss += loss.item()
+                    _, y_pred = torch.max(y_pred.data, 1)
+                    correct += (y_pred == y_batch).sum().item()
+                    total += y_batch.size(0)
+
+
             train_accs.append(train_acc)
             val_accs.append(val_acc)
         return train_losses, val_losses, train_accs, val_accs
 
     def evaluate(self, loader):
+        all_preds, all_labels = [], []
         total_loss, correct, total = 0, 0, 0
         with torch.no_grad():
             for X_batch, y_batch in loader:
                 y_pred = self.forward(X_batch)
+                
                 loss = self.compute_loss(y_pred, y_batch)
                 total_loss += loss.item()
-                correct += (y_pred.argmax(dim=1) == y_batch).sum().item()
+                _, y_pred = torch.max(y_pred.data, 1)
+                correct += (y_pred == y_batch).sum().item()
                 total += y_batch.size(0)
+                all_preds.extend(y_pred.cpu().numpy())
+                all_labels.extend(y_batch.cpu().numpy())
+
+
+        cm = confusion_matrix(all_labels, all_preds)
+           
+        plt.figure(figsize=(6,5))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        plt.xlabel("Predicted")
+        plt.ylabel("True")
+        plt.title("Confusion Matrix")
+        plt.show()
         return total_loss / len(loader), correct / total
 
     def predict(self, loader):
@@ -96,12 +124,25 @@ class TorchSoftmaxModel:
     def evaluate(self, loader):
         self.model.eval()
         correct, total = 0, 0
+        all_preds, all_labels = [], []
         with torch.no_grad():
             for X_batch, y_batch in loader:
                 logits = self.model(X_batch)
                 preds = torch.argmax(logits, dim=1)
                 correct += (preds == y_batch).sum().item()
                 total += y_batch.size(0)
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(y_batch.cpu().numpy())
+
+
+            cm = confusion_matrix(all_labels, all_preds)
+            plt.figure(figsize=(6,5))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+            plt.xlabel("Predicted")
+            plt.ylabel("True")
+            plt.title("Confusion Matrix")
+            plt.show()
+                    
         return correct / total
 
     def predict(self, loader):

@@ -177,6 +177,7 @@ class LogisticRegressionScratch:
         # Confusion Matrix
         cm = confusion_matrix(all_labels, all_preds)
         disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+        print("\nEvaluate Logistic Regression:")
         disp.plot(cmap='Blues', values_format='d')
         plt.title('Confusion Matrix (Test Set)')
         plt.xlabel('Predicted Label')
@@ -380,11 +381,3 @@ def analyze_results(lr_results, bs_results):
 
 
 
-# ========================== ENTRY POINT ==========================
-if __name__ == "__main__":
-    #run and plot learning rate analysis
-    lr_results, best_lr, best_lr_acc = run_learning_rate_analysis()
-    #run and plot batch size analysis
-    bs_results, best_bs, best_bs_acc = run_batch_size_analysis()
-    plot_learning_rate_analysis(lr_results)
-    plot_batch_size_analysis(bs_results)

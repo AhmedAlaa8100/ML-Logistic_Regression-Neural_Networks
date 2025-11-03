@@ -7,6 +7,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 def load_data(file_path, batch_size=64):
     data = pd.read_csv(file_path)
@@ -71,6 +72,8 @@ class NeuralNetwork(nn.Module):
 
 
     def train_model(self, train_loader, val_loader, loss_function, optimizer, epochs=10, patience=3):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.to(device)
         train_losses, val_losses = [], []
         train_std, val_std = [], []
         train_accuracies, val_accuracies = [], []
@@ -145,9 +148,12 @@ class NeuralNetwork(nn.Module):
         return self.best_model_state, train_losses, val_losses, train_std, val_std, train_accuracies, val_accuracies
 
     def evaluate_model(self, test_loader, loss_function):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.to(device)
         self.eval()
         test_loss = 0
         correct, total = 0, 0
+        all_preds, all_labels = [], []
         with torch.no_grad():
             for inputs, labels in test_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
@@ -157,8 +163,14 @@ class NeuralNetwork(nn.Module):
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
         avg_test_loss = test_loss / len(test_loader)
         test_accuracy = correct / total
+        confusion_mtx = confusion_matrix(all_labels, all_preds)
+        disp = ConfusionMatrixDisplay(confusion_matrix=confusion_mtx)
+        disp.plot(cmap=plt.cm.Blues)
+        plt.show()
         print(f'\n Test Loss: {avg_test_loss:.4f}')
         print(f'Test Accuracy: {test_accuracy:.4f}')
         return avg_test_loss, test_accuracy
@@ -500,9 +512,4 @@ def plot_architecture_surface(df):
 
 
 
-if __name__ == "__main__":
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    train_loader, val_loader, test_loader = load_data('mnist_All.csv', batch_size=64)
-    model = NeuralNetwork(input_size=784, hidden_size=[128, 64], layers=2, output_size=10).to(device)
-    loss_function = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+
