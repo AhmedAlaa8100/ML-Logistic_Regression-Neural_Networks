@@ -303,6 +303,31 @@ def plot_batch_size_analysis(results):
     plt.show()
 
 
+def analyze_results(lr_results, bs_results):
+    print("\n" + "="*60)
+    print(" DETAILED ANALYSIS: LEARNING RATE & BATCH SIZE")
+    print("="*60)
+
+    print("\n LEARNING RATE ANALYSIS SUMMARY:")
+    print(f"{'LR':<10} {'Best Val Acc':<15} {'Conv Speed':<15} {'Stability':<15}")
+    print("-"*60)
+    for lr, data in lr_results.items():
+        best_val_acc = max(data['val_acc'])
+        conv_speed = data['convergence_speed']
+        stability = data['stability']
+        print(f"{lr:<10} {best_val_acc:<15.4f} {conv_speed:<15} {stability:<15.6f}")
+
+
+
+    print("\n BATCH SIZE ANALYSIS SUMMARY:")
+    print(f"{'Batch Size':<15} {'Best Val Acc':<15} {'Grad Noise':<15}")
+    print("-"*50)
+    for bs, data in bs_results.items():
+        best_val_acc = max(data['val_acc'])
+        grad_noise = data['gradient_noise']
+        print(f"{bs:<15} {best_val_acc:<15.4f} {grad_noise:<15.6f}")
+
+
 if __name__ == "__main__":
     file_path = "mnist_All.csv"
     train_loader, val_loader, test_loader = load_data(file_path)
@@ -345,3 +370,5 @@ if __name__ == "__main__":
 
     bs_results, best_bs, best_bs_acc = run_batch_size_analysis()
     plot_batch_size_analysis(bs_results)
+
+    analyze_results(lr_results, bs_results)
