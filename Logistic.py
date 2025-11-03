@@ -185,6 +185,8 @@ class LogisticRegressionScratch:
 
 
 # ========================== METRICS ==========================
+   
+
 def convergence_speed(val_losses):
     best_loss = val_losses[0]
     for i in range(1, len(val_losses)):
@@ -192,80 +194,162 @@ def convergence_speed(val_losses):
             return i
         best_loss = min(best_loss, val_losses[i])
     return len(val_losses)
-
 def stability_measure(val_losses):
     tail = val_losses[-5:] if len(val_losses) >= 5 else val_losses
     return np.std(tail)
-
 def gradient_noise_measure(train_losses):
     diffs = np.diff(train_losses)
     return np.var(diffs)
 
+def run_learning_rate_analysis():
+    train_loader, val_loader, _ = load_data('mnist_All.csv', batch_size=64)
 
-# ========================== MAIN ANALYSIS ==========================
-def run_analysis(file_path):
-    
-    lr_values = [0.001, 0.01, 0.1, 1.0]
+    results = {}
+    learning_rates = [0.001, 0.01, 0.1, 1.0]
+    print("\n===== Learning Rate Analysis =====")
+
+    for lr in learning_rates:
+        print(f"\nTesting Learning Rate = {lr}")
+        model = LogisticRegressionScratch(input_dim=784, lr=lr)
+        train_losses, val_losses, train_acc, val_acc = model.train(train_loader, val_loader, epochs=30, patience=3)
+
+        conv_speed = convergence_speed(val_losses)
+        stability = stability_measure(val_losses)
+
+        results[lr] = {
+            'train_losses': train_losses,
+            'val_losses': val_losses,
+            'train_acc': train_acc,
+            'val_acc': val_acc,
+            'convergence_speed': conv_speed,
+            'stability': stability
+        }
+
+
+    # Best learning rate based on maximum validation accuracy
+    best_lr = max(results, key=lambda x: max(results[x]['val_acc']))
+    best_lr_acc = max(results[best_lr]['val_acc'])
+    print(f"\n Best Learning Rate: {best_lr} (Val Accuracy: {best_lr_acc:.4f})")
+
+    return results, best_lr, best_lr_acc
+
+def run_batch_size_analysis():
+    results = {}
     batch_sizes = [16, 32, 64, 128]
+    print("\n===== Batch Size Analysis =====")
 
-    lr_results, bs_results = [], []
-    train_loader, val_loader, _ = load_data(file_path, batch_size=64)
-
-    # ---- LEARNING RATE ANALYSIS ----
-    val_losses = []
-    for lr in lr_values:
-        
-        model = LogisticRegressionScratch(784,lr)
-        train_loss, val_loss, _, _ = model.train(train_loader, val_loader)
-        conv_speed = convergence_speed(val_loss)
-        stab = stability_measure(val_loss)
-        lr_results.append((lr, val_loss[-1], conv_speed, stab))
-        val_losses.append(val_loss)
-        
-    plt.figure(figsize=(8, 5))
-    for i, lr in enumerate(lr_values):
-        plt.plot(val_losses[i], label=f"LR={lr}")
-
-    plt.title("Learning Rate Effect on Validation Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Validation Loss")
-    plt.legend(title="Learning Rates")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-    print("\n=== Learning Rate Quantitative Results ===")
-    print("LR\tFinalLoss\tConvergeEpoch\tStability(Std)")
-    for lr, loss, conv, stab in lr_results:
-        print(f"{lr}\t{loss:.5f}\t{conv}\t\t{stab:.6f}")
-
-    # ---- BATCH SIZE ANALYSIS ----
-    val_losses = []
     for bs in batch_sizes:
-        train_loader, val_loader, _ = load_data(file_path, batch_size=bs)
-        model = LogisticRegressionScratch(784, lr=0.1)
-        train_loss, val_loss, _, _ = model.train(train_loader, val_loader)
-        noise = gradient_noise_measure(train_loss)
-        bs_results.append((bs, val_loss[-1], noise))
-        val_losses.append(val_loss)
-    plt.figure(figsize=(8, 5))
-    for i, bs in enumerate(batch_sizes):
-        plt.plot(val_losses[i], label=f"Batch={bs}")
+        print(f"\nTesting Batch Size = {bs}")
+        train_loader, val_loader, test_loader = load_data('mnist_All.csv', batch_size=bs)
 
-    plt.title("Batch Size Effect on Validation Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Validation Loss")
-    plt.legend(title="Batch Sizes")
-    plt.grid(True)
-    plt.tight_layout()
+        model = LogisticRegressionScratch(input_dim=784, lr=0.01)
+  
+
+        train_losses, val_losses,  train_acc, val_acc = model.train( train_loader, val_loader, epochs=30, patience=3)
+
+        grad_noise = gradient_noise_measure(train_losses)
+
+        results[bs] = {
+            'train_losses': train_losses,
+            'val_losses': val_losses,
+            'train_acc': train_acc,
+            'val_acc': val_acc,
+            'gradient_noise': grad_noise
+        }
+
+
+    best_bs = max(results, key=lambda x: max(results[x]['val_acc']))
+    best_bs_acc = max(results[best_bs]['val_acc'])
+    print(f"\n Best Batch Size: {best_bs} (Val Accuracy: {best_bs_acc:.4f})")
+
+    return results, best_bs, best_bs_acc
+def plot_learning_rate_analysis(results):
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(14, 10))
+    plt.suptitle('Learning Rate Analysis', fontsize=14, fontweight='bold')
+
+    # (1) Train Loss
+    plt.subplot(2, 2, 1)
+    for lr, data in results.items():
+        plt.plot(data['train_losses'], label=f'LR={lr}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Loss')
+    plt.title('Train Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (2) Validation Loss
+    plt.subplot(2, 2, 2)
+    for lr, data in results.items():
+        plt.plot(data['val_losses'], label=f'LR={lr} (conv={data["convergence_speed"]}, stab={data["stability"]:.4f})')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Loss')
+    plt.title('Validation Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (3) Train Accuracy
+    plt.subplot(2, 2, 3)
+    for lr, data in results.items():
+        plt.plot(data['train_acc'], label=f'LR={lr}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Accuracy')
+    plt.title('Train Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (4) Validation Accuracy
+    plt.subplot(2, 2, 4)
+    for lr, data in results.items():
+        plt.plot(data['val_acc'], label=f'LR={lr}')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Accuracy')
+    plt.title('Validation Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
-    print("\n=== Batch Size Quantitative Results ===")
-    print("BatchSize\tFinalLoss\tGradientNoise(Var)")
-    for bs, loss, noise in bs_results:
-        print(f"{bs}\t\t{loss:.5f}\t\t{noise:.6f}")
+def plot_batch_size_analysis(results):
+    import matplotlib.pyplot as plt
 
+    plt.figure(figsize=(14, 10))
+    plt.suptitle('Batch Size Analysis', fontsize=14, fontweight='bold')
+
+    # (1) Train Loss
+    plt.subplot(2, 2, 1)
+    for bs, data in results.items():
+        plt.plot(data['train_losses'], label=f'BS={bs}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Loss')
+    plt.title('Train Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (2) Validation Loss
+    plt.subplot(2, 2, 2)
+    for bs, data in results.items():
+        plt.plot(data['val_losses'], label=f'BS={bs} (grad_noise={data["gradient_noise"]:.4f})')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Loss')
+    plt.title('Validation Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (3) Train Accuracy
+    plt.subplot(2, 2, 3)
+    for bs, data in results.items():
+        plt.plot(data['train_acc'], label=f'BS={bs}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Accuracy')
+    plt.title('Train Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (4) Validation Accuracy
+    plt.subplot(2, 2, 4)
+    for bs, data in results.items():
+        plt.plot(data['val_acc'], label=f'BS={bs}')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Accuracy')
+    plt.title('Validation Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
 
 # ========================== ENTRY POINT ==========================
 if __name__ == "__main__":
-
-   run_analysis("mnist_All.csv")
+    #run and plot learning rate analysis
+    lr_results, best_lr, best_lr_acc = run_learning_rate_analysis()
+    #run and plot batch size analysis
+    bs_results, best_bs, best_bs_acc = run_batch_size_analysis()
+    plot_learning_rate_analysis(lr_results)
+    plot_batch_size_analysis(bs_results)
