@@ -353,7 +353,7 @@ def analyze_results(lr_results, bs_results):
     print(f"{'LR':<10} {'Best Val Acc':<15} {'Conv Speed':<15} {'Stability':<15}")
     print("-"*60)
     for lr, data in lr_results.items():
-        best_val_acc = max(data['val_acc'])
+        best_val_acc = max(data['val_accs'])
         conv_speed = data['convergence_speed']
         stability = data['stability']
         print(f"{lr:<10} {best_val_acc:<15.4f} {conv_speed:<15} {stability:<15.6f}")
@@ -364,7 +364,7 @@ def analyze_results(lr_results, bs_results):
     print(f"{'Batch Size':<15} {'Best Val Acc':<15} {'Grad Noise':<15}")
     print("-"*50)
     for bs, data in bs_results.items():
-        best_val_acc = max(data['val_acc'])
+        best_val_acc = max(data['val_accs'])
         grad_noise = data['gradient_noise']
         print(f"{bs:<15} {best_val_acc:<15.4f} {grad_noise:<15.6f}")
 
