@@ -34,7 +34,7 @@ def load_data(file_path, batch_size=64):
     test_dataset = TensorDataset(torch.tensor(X_test_binary, dtype=torch.float32),
                                  torch.tensor(Y_test_binary, dtype=torch.long))
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -44,7 +44,7 @@ def load_data(file_path, batch_size=64):
 # ========================== MODEL CLASS ==========================
 class LogisticRegressionScratch:
     def __init__(self, input_dim=784, lr=0.01):
-        self.W = torch.zeros((input_dim, 1), dtype=torch.float32 )
+        self.W = torch.zeros((input_dim, 1), dtype=torch.float32)
         self.b = torch.zeros(1, dtype=torch.float32)
         self.lr = lr
 
@@ -56,21 +56,18 @@ class LogisticRegressionScratch:
         return -torch.mean(y_true * torch.log(y_pred + eps) + (1 - y_true) * torch.log(1 - y_pred + eps))
 
     def gradient(self, X, y_pred, y_true):
-        m = X.shape[0]
-        dw = torch.matmul(X.T, (y_pred - y_true)) / m
-        db = torch.sum(y_pred - y_true) / m
+        m = y_true.shape[0]
+        dw = torch.matmul(X.T, (y_pred - y_true)) 
+        db = torch.sum(y_pred - y_true) 
         return dw, db
 
     def update_weights(self, dw, db):
         self.W -= self.lr * dw
         self.b -= self.lr * db
 
-    def accuracy(self, y_pred, y_true):
-        preds = (y_pred >= 0.5).float()
-        correct = (preds == y_true).float().sum()
-        return correct / y_true.shape[0]
 
-    def train(self, train_loader, val_loader, epochs=15, patience=3):
+
+    def train(self, train_loader, val_loader, epochs=15, patience=5):
         train_losses, val_losses, train_accs, val_accs = [], [], [], []
         best_val_loss = float('inf')
         best_weights = (self.W.clone(), self.b.clone())
@@ -81,17 +78,21 @@ class LogisticRegressionScratch:
             epoch_train_loss = 0
             correct, total = 0, 0
             for X_batch, y_batch in train_loader:
+                # Reshape y_batch to be of shape (batch_size, 1)
                 y_batch = y_batch.view(-1, 1).float()
+                #calculate predictions
                 y_pred = self.sigmoid(torch.matmul(X_batch, self.W) + self.b)
+                #calculate loss
                 loss = self.loss(y_pred, y_batch)
                 epoch_train_loss += loss.item()
-
+                #calculate gradients
                 dw, db = self.gradient(X_batch, y_pred, y_batch)
                 self.update_weights(dw, db)
-
+                #calculate accuracy for the batch
                 correct += ((y_pred >= 0.5).float() == y_batch).float().sum().item()
                 total += y_batch.size(0)
 
+            #calculate average loss and accuracy for the epoch
             train_loss = epoch_train_loss / len(train_loader)
             train_acc = correct / total
             train_losses.append(train_loss)
@@ -117,7 +118,9 @@ class LogisticRegressionScratch:
                   f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}")
 
             # EARLY STOPPING
-            if val_loss + 1e-10 < best_val_loss:
+            #patience variable to avoid overfitting
+            #if validation loss does not improve for 'patience' epochs, stop training
+            if val_loss  < best_val_loss - 1e-4:
                 best_val_loss = val_loss
                 best_weights = (self.W.clone(), self.b.clone())
                 patience_counter = 0
@@ -167,10 +170,11 @@ class LogisticRegressionScratch:
                 total += y_batch.size(0)
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(y_batch.cpu().numpy())
-
+        # Calculate average loss and accuracy
         avg_loss = total_loss / len(test_loader)
         accuracy = correct / total
 
+        # Confusion Matrix
         cm = confusion_matrix(all_labels, all_preds)
         disp = ConfusionMatrixDisplay(confusion_matrix=cm)
         disp.plot(cmap='Blues', values_format='d')
@@ -188,16 +192,21 @@ class LogisticRegressionScratch:
    
 
 def convergence_speed(val_losses):
+    #defined as the epoch when validation loss stabilizes (less than 0.1% change)
     best_loss = val_losses[0]
     for i in range(1, len(val_losses)):
         if abs(val_losses[i] - best_loss) / best_loss < 0.001:
             return i
         best_loss = min(best_loss, val_losses[i])
     return len(val_losses)
+
 def stability_measure(val_losses):
+    #standard deviation of the last 5 validation losses
     tail = val_losses[-5:] if len(val_losses) >= 5 else val_losses
     return np.std(tail)
+
 def gradient_noise_measure(train_losses):
+    #variance of the differences between consecutive training losses
     diffs = np.diff(train_losses)
     return np.var(diffs)
 
@@ -211,11 +220,11 @@ def run_learning_rate_analysis():
     for lr in learning_rates:
         print(f"\nTesting Learning Rate = {lr}")
         model = LogisticRegressionScratch(input_dim=784, lr=lr)
-        train_losses, val_losses, train_acc, val_acc = model.train(train_loader, val_loader, epochs=30, patience=3)
-
+        train_losses, val_losses, train_acc, val_acc = model.train(train_loader, val_loader, epochs=30, patience=5)
+        #calculate metrics
         conv_speed = convergence_speed(val_losses)
         stability = stability_measure(val_losses)
-
+        #store results
         results[lr] = {
             'train_losses': train_losses,
             'val_losses': val_losses,
@@ -245,7 +254,7 @@ def run_batch_size_analysis():
         model = LogisticRegressionScratch(input_dim=784, lr=0.01)
   
 
-        train_losses, val_losses,  train_acc, val_acc = model.train( train_loader, val_loader, epochs=30, patience=3)
+        train_losses, val_losses,  train_acc, val_acc = model.train( train_loader, val_loader, epochs=30, patience=5)
 
         grad_noise = gradient_noise_measure(train_losses)
 
@@ -344,6 +353,32 @@ def plot_batch_size_analysis(results):
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
+    
+def analyze_results(lr_results, bs_results):
+    print("\n" + "="*60)
+    print(" DETAILED ANALYSIS: LEARNING RATE & BATCH SIZE")
+    print("="*60)
+
+    print("\n LEARNING RATE ANALYSIS SUMMARY:")
+    print(f"{'LR':<10} {'Best Val Acc':<15} {'Conv Speed':<15} {'Stability':<15}")
+    print("-"*60)
+    for lr, data in lr_results.items():
+        best_val_acc = max(data['val_acc'])
+        conv_speed = data['convergence_speed']
+        stability = data['stability']
+        print(f"{lr:<10} {best_val_acc:<15.4f} {conv_speed:<15} {stability:<15.6f}")
+
+
+
+    print("\n BATCH SIZE ANALYSIS SUMMARY:")
+    print(f"{'Batch Size':<15} {'Best Val Acc':<15} {'Grad Noise':<15}")
+    print("-"*50)
+    for bs, data in bs_results.items():
+        best_val_acc = max(data['val_acc'])
+        grad_noise = data['gradient_noise']
+        print(f"{bs:<15} {best_val_acc:<15.4f} {grad_noise:<15.6f}")
+
+
 
 # ========================== ENTRY POINT ==========================
 if __name__ == "__main__":
