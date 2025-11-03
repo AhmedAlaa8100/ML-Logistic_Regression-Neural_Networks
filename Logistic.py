@@ -34,7 +34,7 @@ def load_data(file_path, batch_size=64):
     test_dataset = TensorDataset(torch.tensor(X_test_binary, dtype=torch.float32),
                                  torch.tensor(Y_test_binary, dtype=torch.long))
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -44,7 +44,7 @@ def load_data(file_path, batch_size=64):
 # ========================== MODEL CLASS ==========================
 class LogisticRegressionScratch:
     def __init__(self, input_dim=784, lr=0.01):
-        self.W = torch.zeros((input_dim, 1), dtype=torch.float32 )
+        self.W = torch.zeros((input_dim, 1), dtype=torch.float32)
         self.b = torch.zeros(1, dtype=torch.float32)
         self.lr = lr
 
@@ -56,21 +56,18 @@ class LogisticRegressionScratch:
         return -torch.mean(y_true * torch.log(y_pred + eps) + (1 - y_true) * torch.log(1 - y_pred + eps))
 
     def gradient(self, X, y_pred, y_true):
-        m = X.shape[0]
-        dw = torch.matmul(X.T, (y_pred - y_true)) / m
-        db = torch.sum(y_pred - y_true) / m
+        m = y_true.shape[0]
+        dw = torch.matmul(X.T, (y_pred - y_true)) 
+        db = torch.sum(y_pred - y_true) 
         return dw, db
 
     def update_weights(self, dw, db):
         self.W -= self.lr * dw
         self.b -= self.lr * db
 
-    def accuracy(self, y_pred, y_true):
-        preds = (y_pred >= 0.5).float()
-        correct = (preds == y_true).float().sum()
-        return correct / y_true.shape[0]
 
-    def train(self, train_loader, val_loader, epochs=15, patience=3):
+
+    def train(self, train_loader, val_loader, epochs=15, patience=5):
         train_losses, val_losses, train_accs, val_accs = [], [], [], []
         best_val_loss = float('inf')
         best_weights = (self.W.clone(), self.b.clone())
@@ -81,17 +78,21 @@ class LogisticRegressionScratch:
             epoch_train_loss = 0
             correct, total = 0, 0
             for X_batch, y_batch in train_loader:
+                # Reshape y_batch to be of shape (batch_size, 1)
                 y_batch = y_batch.view(-1, 1).float()
+                #calculate predictions
                 y_pred = self.sigmoid(torch.matmul(X_batch, self.W) + self.b)
+                #calculate loss
                 loss = self.loss(y_pred, y_batch)
                 epoch_train_loss += loss.item()
-
+                #calculate gradients
                 dw, db = self.gradient(X_batch, y_pred, y_batch)
                 self.update_weights(dw, db)
-
+                #calculate accuracy for the batch
                 correct += ((y_pred >= 0.5).float() == y_batch).float().sum().item()
                 total += y_batch.size(0)
 
+            #calculate average loss and accuracy for the epoch
             train_loss = epoch_train_loss / len(train_loader)
             train_acc = correct / total
             train_losses.append(train_loss)
@@ -117,7 +118,9 @@ class LogisticRegressionScratch:
                   f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}")
 
             # EARLY STOPPING
-            if val_loss + 1e-10 < best_val_loss:
+            #patience variable to avoid overfitting
+            #if validation loss does not improve for 'patience' epochs, stop training
+            if val_loss  < best_val_loss - 1e-4:
                 best_val_loss = val_loss
                 best_weights = (self.W.clone(), self.b.clone())
                 patience_counter = 0
@@ -167,10 +170,11 @@ class LogisticRegressionScratch:
                 total += y_batch.size(0)
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(y_batch.cpu().numpy())
-
+        # Calculate average loss and accuracy
         avg_loss = total_loss / len(test_loader)
         accuracy = correct / total
 
+        # Confusion Matrix
         cm = confusion_matrix(all_labels, all_preds)
         disp = ConfusionMatrixDisplay(confusion_matrix=cm)
         disp.plot(cmap='Blues', values_format='d')
@@ -185,7 +189,10 @@ class LogisticRegressionScratch:
 
 
 # ========================== METRICS ==========================
+   
+
 def convergence_speed(val_losses):
+    #defined as the epoch when validation loss stabilizes (less than 0.1% change)
     best_loss = val_losses[0]
     for i in range(1, len(val_losses)):
         if abs(val_losses[i] - best_loss) / best_loss < 0.001:
@@ -194,78 +201,190 @@ def convergence_speed(val_losses):
     return len(val_losses)
 
 def stability_measure(val_losses):
+    #standard deviation of the last 5 validation losses
     tail = val_losses[-5:] if len(val_losses) >= 5 else val_losses
     return np.std(tail)
 
 def gradient_noise_measure(train_losses):
+    #variance of the differences between consecutive training losses
     diffs = np.diff(train_losses)
     return np.var(diffs)
 
+def run_learning_rate_analysis():
+    train_loader, val_loader, _ = load_data('mnist_All.csv', batch_size=64)
 
-# ========================== MAIN ANALYSIS ==========================
-def run_analysis(file_path):
-    
-    lr_values = [0.001, 0.01, 0.1, 1.0]
+    results = {}
+    learning_rates = [0.001, 0.01, 0.1, 1.0]
+    print("\n===== Learning Rate Analysis =====")
+
+    for lr in learning_rates:
+        print(f"\nTesting Learning Rate = {lr}")
+        model = LogisticRegressionScratch(input_dim=784, lr=lr)
+        train_losses, val_losses, train_acc, val_acc = model.train(train_loader, val_loader, epochs=30, patience=5)
+        #calculate metrics
+        conv_speed = convergence_speed(val_losses)
+        stability = stability_measure(val_losses)
+        #store results
+        results[lr] = {
+            'train_losses': train_losses,
+            'val_losses': val_losses,
+            'train_acc': train_acc,
+            'val_acc': val_acc,
+            'convergence_speed': conv_speed,
+            'stability': stability
+        }
+
+
+    # Best learning rate based on maximum validation accuracy
+    best_lr = max(results, key=lambda x: max(results[x]['val_acc']))
+    best_lr_acc = max(results[best_lr]['val_acc'])
+    print(f"\n Best Learning Rate: {best_lr} (Val Accuracy: {best_lr_acc:.4f})")
+
+    return results, best_lr, best_lr_acc
+
+def run_batch_size_analysis():
+    results = {}
     batch_sizes = [16, 32, 64, 128]
+    print("\n===== Batch Size Analysis =====")
 
-    lr_results, bs_results = [], []
-    train_loader, val_loader, _ = load_data(file_path, batch_size=64)
-
-    # ---- LEARNING RATE ANALYSIS ----
-    val_losses = []
-    for lr in lr_values:
-        
-        model = LogisticRegressionScratch(784,lr)
-        train_loss, val_loss, _, _ = model.train(train_loader, val_loader)
-        conv_speed = convergence_speed(val_loss)
-        stab = stability_measure(val_loss)
-        lr_results.append((lr, val_loss[-1], conv_speed, stab))
-        val_losses.append(val_loss)
-        
-    plt.figure(figsize=(8, 5))
-    for i, lr in enumerate(lr_values):
-        plt.plot(val_losses[i], label=f"LR={lr}")
-
-    plt.title("Learning Rate Effect on Validation Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Validation Loss")
-    plt.legend(title="Learning Rates")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-    print("\n=== Learning Rate Quantitative Results ===")
-    print("LR\tFinalLoss\tConvergeEpoch\tStability(Std)")
-    for lr, loss, conv, stab in lr_results:
-        print(f"{lr}\t{loss:.5f}\t{conv}\t\t{stab:.6f}")
-
-    # ---- BATCH SIZE ANALYSIS ----
-    val_losses = []
     for bs in batch_sizes:
-        train_loader, val_loader, _ = load_data(file_path, batch_size=bs)
-        model = LogisticRegressionScratch(784, lr=0.1)
-        train_loss, val_loss, _, _ = model.train(train_loader, val_loader)
-        noise = gradient_noise_measure(train_loss)
-        bs_results.append((bs, val_loss[-1], noise))
-        val_losses.append(val_loss)
-    plt.figure(figsize=(8, 5))
-    for i, bs in enumerate(batch_sizes):
-        plt.plot(val_losses[i], label=f"Batch={bs}")
+        print(f"\nTesting Batch Size = {bs}")
+        train_loader, val_loader, test_loader = load_data('mnist_All.csv', batch_size=bs)
 
-    plt.title("Batch Size Effect on Validation Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Validation Loss")
-    plt.legend(title="Batch Sizes")
-    plt.grid(True)
-    plt.tight_layout()
+        model = LogisticRegressionScratch(input_dim=784, lr=0.01)
+  
+
+        train_losses, val_losses,  train_acc, val_acc = model.train( train_loader, val_loader, epochs=30, patience=5)
+
+        grad_noise = gradient_noise_measure(train_losses)
+
+        results[bs] = {
+            'train_losses': train_losses,
+            'val_losses': val_losses,
+            'train_acc': train_acc,
+            'val_acc': val_acc,
+            'gradient_noise': grad_noise
+        }
+
+
+    best_bs = max(results, key=lambda x: max(results[x]['val_acc']))
+    best_bs_acc = max(results[best_bs]['val_acc'])
+    print(f"\n Best Batch Size: {best_bs} (Val Accuracy: {best_bs_acc:.4f})")
+
+    return results, best_bs, best_bs_acc
+def plot_learning_rate_analysis(results):
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(14, 10))
+    plt.suptitle('Learning Rate Analysis', fontsize=14, fontweight='bold')
+
+    # (1) Train Loss
+    plt.subplot(2, 2, 1)
+    for lr, data in results.items():
+        plt.plot(data['train_losses'], label=f'LR={lr}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Loss')
+    plt.title('Train Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (2) Validation Loss
+    plt.subplot(2, 2, 2)
+    for lr, data in results.items():
+        plt.plot(data['val_losses'], label=f'LR={lr} (conv={data["convergence_speed"]}, stab={data["stability"]:.4f})')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Loss')
+    plt.title('Validation Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (3) Train Accuracy
+    plt.subplot(2, 2, 3)
+    for lr, data in results.items():
+        plt.plot(data['train_acc'], label=f'LR={lr}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Accuracy')
+    plt.title('Train Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (4) Validation Accuracy
+    plt.subplot(2, 2, 4)
+    for lr, data in results.items():
+        plt.plot(data['val_acc'], label=f'LR={lr}')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Accuracy')
+    plt.title('Validation Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
-    print("\n=== Batch Size Quantitative Results ===")
-    print("BatchSize\tFinalLoss\tGradientNoise(Var)")
-    for bs, loss, noise in bs_results:
-        print(f"{bs}\t\t{loss:.5f}\t\t{noise:.6f}")
+def plot_batch_size_analysis(results):
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(14, 10))
+    plt.suptitle('Batch Size Analysis', fontsize=14, fontweight='bold')
+
+    # (1) Train Loss
+    plt.subplot(2, 2, 1)
+    for bs, data in results.items():
+        plt.plot(data['train_losses'], label=f'BS={bs}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Loss')
+    plt.title('Train Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (2) Validation Loss
+    plt.subplot(2, 2, 2)
+    for bs, data in results.items():
+        plt.plot(data['val_losses'], label=f'BS={bs} (grad_noise={data["gradient_noise"]:.4f})')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Loss')
+    plt.title('Validation Loss vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (3) Train Accuracy
+    plt.subplot(2, 2, 3)
+    for bs, data in results.items():
+        plt.plot(data['train_acc'], label=f'BS={bs}')
+    plt.xlabel('Epochs'); plt.ylabel('Train Accuracy')
+    plt.title('Train Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    # (4) Validation Accuracy
+    plt.subplot(2, 2, 4)
+    for bs, data in results.items():
+        plt.plot(data['val_acc'], label=f'BS={bs}')
+    plt.xlabel('Epochs'); plt.ylabel('Validation Accuracy')
+    plt.title('Validation Accuracy vs Epochs')
+    plt.legend(fontsize=8); plt.grid(True)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+    
+def analyze_results(lr_results, bs_results):
+    print("\n" + "="*60)
+    print(" DETAILED ANALYSIS: LEARNING RATE & BATCH SIZE")
+    print("="*60)
+
+    print("\n LEARNING RATE ANALYSIS SUMMARY:")
+    print(f"{'LR':<10} {'Best Val Acc':<15} {'Conv Speed':<15} {'Stability':<15}")
+    print("-"*60)
+    for lr, data in lr_results.items():
+        best_val_acc = max(data['val_acc'])
+        conv_speed = data['convergence_speed']
+        stability = data['stability']
+        print(f"{lr:<10} {best_val_acc:<15.4f} {conv_speed:<15} {stability:<15.6f}")
+
+
+
+    print("\n BATCH SIZE ANALYSIS SUMMARY:")
+    print(f"{'Batch Size':<15} {'Best Val Acc':<15} {'Grad Noise':<15}")
+    print("-"*50)
+    for bs, data in bs_results.items():
+        best_val_acc = max(data['val_acc'])
+        grad_noise = data['gradient_noise']
+        print(f"{bs:<15} {best_val_acc:<15.4f} {grad_noise:<15.6f}")
+
 
 
 # ========================== ENTRY POINT ==========================
 if __name__ == "__main__":
-
-   run_analysis("mnist_All.csv")
+    #run and plot learning rate analysis
+    lr_results, best_lr, best_lr_acc = run_learning_rate_analysis()
+    #run and plot batch size analysis
+    bs_results, best_bs, best_bs_acc = run_batch_size_analysis()
+    plot_learning_rate_analysis(lr_results)
+    plot_batch_size_analysis(bs_results)
