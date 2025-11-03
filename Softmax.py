@@ -36,7 +36,6 @@ class SoftmaxRegression:
             self.b.grad.zero_()
 
     def train_model(self, train_loader, val_loader, epochs=50):
-        all_preds, all_labels = [], []
         train_losses, val_losses, train_accs, val_accs = [], [], [], []
         for _ in range(epochs):
             total_loss, correct, total = 0, 0, 0
@@ -55,16 +54,15 @@ class SoftmaxRegression:
             train_losses.append(train_loss)
             total_loss, correct, total = 0, 0, 0
             with torch.no_grad():
-                for X_batch, y_batch in loader:
+                for X_batch, y_batch in val_loader:
                     y_pred = self.forward(X_batch)
-                
                     loss = self.compute_loss(y_pred, y_batch)
                     total_loss += loss.item()
                     _, y_pred = torch.max(y_pred.data, 1)
                     correct += (y_pred == y_batch).sum().item()
                     total += y_batch.size(0)
-
-
+            val_loss = total_loss / len(val_loader)
+            val_acc = correct / total
             train_accs.append(train_acc)
             val_accs.append(val_acc)
         return train_losses, val_losses, train_accs, val_accs
